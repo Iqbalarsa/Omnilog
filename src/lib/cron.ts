@@ -5,7 +5,9 @@ import { prisma } from "./prisma";
 let isCronInitialized = false;
 
 export function initCronJobs() {
-  if (isCronInitialized) return;
+  // In serverless environments like Vercel, background cron processes are not supported.
+  // Vercel Cron or manual API triggers are used instead.
+  if (process.env.VERCEL || isCronInitialized) return;
   isCronInitialized = true;
 
   console.log("[Scheduler] Initializing daily reading reminder cron worker...");

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Bookmark, Check } from "lucide-react";
+import { getStoredBookById, saveNewEntry } from "@/lib/storage";
 
 interface BookOption {
   id: string;
@@ -55,20 +56,36 @@ export default function QuickLogForm({
     setError("");
 
     try {
-      const res = await fetch(`/api/books/${targetId}/entries`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content.trim(),
-          pageNumber: pageNumber.trim() || null,
-          engageAi,
-        }),
-      });
+      let initialAiReply: string | null = null;
 
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to save entry");
+      if (engageAi) {
+        try {
+          const targetBook = getStoredBookById(targetId);
+          const res = await fetch("/api/ai/spar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              bookTitle: targetBook?.title || "Book",
+              bookAuthor: targetBook?.author || null,
+              entryContent: content.trim(),
+              pageNumber: pageNumber.trim() || null,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.reply) initialAiReply = data.reply;
+          }
+        } catch (aiErr) {
+          console.warn("AI spar background error:", aiErr);
+        }
       }
+
+      saveNewEntry(
+        targetId,
+        content.trim(),
+        pageNumber.trim() || null,
+        initialAiReply
+      );
 
       setContent("");
       setPageNumber("");

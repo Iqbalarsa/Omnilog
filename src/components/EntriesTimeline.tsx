@@ -17,6 +17,7 @@ import {
   Video,
   Headphones,
 } from "lucide-react";
+import { addAiMessageToEntry, deleteStoredEntry } from "@/lib/storage";
 
 interface AiMessage {
   id: string;
@@ -72,18 +73,41 @@ export default function EntriesTimeline({
     const text = replyText[entryId];
     if (!text || !text.trim()) return;
 
+    const trimmed = text.trim();
+    const entry = entries.find((e) => e.id === entryId);
+
+    // 1. Optimistically append user message to local entry
+    addAiMessageToEntry(entryId, "USER", trimmed);
+    setReplyText((prev) => ({ ...prev, [entryId]: "" }));
+    onRefresh();
+
     setIsSendingReply((prev) => ({ ...prev, [entryId]: true }));
 
     try {
       const res = await fetch(`/api/entries/${entryId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text.trim() }),
+        body: JSON.stringify({
+          message: trimmed,
+          bookTitle: entry?.book?.title || "Book",
+          bookAuthor: entry?.book?.author || null,
+          entryContent: entry?.content || "",
+          pageNumber: entry?.pageNumber || null,
+          previousMessages:
+            entry?.aiThreads?.map((m) => ({
+              sender: m.sender,
+              message: m.message,
+            })) || [],
+        }),
       });
 
       if (res.ok) {
-        setReplyText((prev) => ({ ...prev, [entryId]: "" }));
-        onRefresh();
+        const data = await res.json();
+        const replyContent = data.reply || data.aiMessage?.message;
+        if (replyContent) {
+          addAiMessageToEntry(entryId, "AI", replyContent);
+          onRefresh();
+        }
       }
     } catch (err) {
       console.error("Sparring reply error:", err);
@@ -92,20 +116,14 @@ export default function EntriesTimeline({
     }
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
+  const handleDeleteEntry = (entryId: string) => {
     setIsDeleting((prev) => ({ ...prev, [entryId]: true }));
     try {
-      const res = await fetch(`/api/entries/${entryId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        setConfirmDeleteId(null);
-        onRefresh();
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("entry-saved"));
-        }
-      } else {
-        alert("Failed to delete reflection note");
+      deleteStoredEntry(entryId);
+      setConfirmDeleteId(null);
+      onRefresh();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("entry-saved"));
       }
     } catch (err) {
       console.error("Failed to delete entry:", err);

@@ -15,6 +15,13 @@ import QuickLogForm from "@/components/QuickLogForm";
 import EntriesTimeline, { EntryItem } from "@/components/EntriesTimeline";
 import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 import ActivityCalendarCard from "@/components/ActivityCalendarCard";
+import {
+  getStoredBooks,
+  getStoredEntries,
+  calculateReadingStreak,
+  updateStoredBook,
+  deleteStoredBook,
+} from "@/lib/storage";
 
 const YouTubeIcon = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -63,26 +70,20 @@ export default function ReadingWorkspace() {
   const [isDeletingBook, setIsDeletingBook] = useState(false);
 
   // Load streak stats
-  const loadStreak = useCallback(async () => {
+  const loadStreak = useCallback(() => {
     try {
-      const res = await fetch("/api/streak");
-      if (res.ok) {
-        const data = await res.json();
-        setStreakStats(data);
-      }
+      const stats = calculateReadingStreak();
+      setStreakStats(stats);
     } catch (e) {
       console.error("Streak load error:", e);
     }
   }, []);
 
   // Load books & media
-  const loadBooks = useCallback(async () => {
+  const loadBooks = useCallback(() => {
     try {
-      const res = await fetch("/api/books");
-      if (res.ok) {
-        const data = await res.json();
-        setBooks(data);
-      }
+      const stored = getStoredBooks();
+      setBooks(stored as any);
     } catch (err) {
       console.error("Failed to load media:", err);
     } finally {
@@ -91,18 +92,11 @@ export default function ReadingWorkspace() {
   }, []);
 
   // Load entries for current book or all books
-  const loadEntries = useCallback(async () => {
+  const loadEntries = useCallback(() => {
     setLoadingEntries(true);
     try {
-      const url =
-        selectedBookId && selectedBookId !== "ALL"
-          ? `/api/entries?bookId=${selectedBookId}`
-          : "/api/entries";
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setEntries(data);
-      }
+      const data = getStoredEntries(selectedBookId);
+      setEntries(data as any);
     } catch (err) {
       console.error("Failed to load entries:", err);
     } finally {
@@ -120,12 +114,16 @@ export default function ReadingWorkspace() {
         setSelectedBookId(bId);
       }
 
-      const handleEntrySaved = () => {
+      const handleStorageUpdate = () => {
         loadStreak();
         loadBooks();
       };
-      window.addEventListener("entry-saved", handleEntrySaved);
-      return () => window.removeEventListener("entry-saved", handleEntrySaved);
+      window.addEventListener("omnilog-storage-updated", handleStorageUpdate);
+      window.addEventListener("entry-saved", handleStorageUpdate);
+      return () => {
+        window.removeEventListener("omnilog-storage-updated", handleStorageUpdate);
+        window.removeEventListener("entry-saved", handleStorageUpdate);
+      };
     }
   }, [loadBooks, loadStreak]);
 
@@ -167,55 +165,31 @@ export default function ReadingWorkspace() {
   }, [books]);
 
   // Toggle book status between READING and COMPLETED
-  const handleToggleFinished = async () => {
+  const handleToggleFinished = () => {
     if (!activeBook) return;
     const newStatus = activeBook.status === "COMPLETED" ? "READING" : "COMPLETED";
-    try {
-      const res = await fetch(`/api/books/${activeBook.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (res.ok) {
-        loadBooks();
-      }
-    } catch (err) {
-      console.error("Failed to update status:", err);
-    }
+    updateStoredBook(activeBook.id, { status: newStatus });
+    loadBooks();
   };
 
   // Change book status via select dropdown
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = (newStatus: string) => {
     if (!activeBook) return;
-    try {
-      const res = await fetch(`/api/books/${activeBook.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (res.ok) {
-        loadBooks();
-      }
-    } catch (err) {
-      console.error("Failed to update status:", err);
-    }
+    updateStoredBook(activeBook.id, { status: newStatus as any });
+    loadBooks();
   };
 
   // Delete active book
-  const handleDeleteBook = async () => {
+  const handleDeleteBook = () => {
     if (!activeBook) return;
     setIsDeletingBook(true);
     try {
-      const res = await fetch(`/api/books/${activeBook.id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        setShowDeleteBookConfirm(false);
-        setSelectedBookId("ALL");
-        loadBooks();
-        loadEntries();
-        loadStreak();
-      }
+      deleteStoredBook(activeBook.id);
+      setShowDeleteBookConfirm(false);
+      setSelectedBookId("ALL");
+      loadBooks();
+      loadEntries();
+      loadStreak();
     } catch (err) {
       console.error("Failed to delete media:", err);
     } finally {

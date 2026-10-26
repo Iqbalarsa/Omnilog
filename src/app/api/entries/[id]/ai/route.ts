@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { generateSocraticSparring } from "@/lib/gemini";
 
 export async function POST(
@@ -9,7 +8,14 @@ export async function POST(
   try {
     const { id: entryId } = await params;
     const body = await req.json();
-    const { message } = body;
+    const {
+      message,
+      bookTitle = "General Knowledge",
+      bookAuthor = null,
+      entryContent = "",
+      pageNumber = null,
+      previousMessages = [],
+    } = body;
 
     if (!message || !message.trim()) {
       return NextResponse.json(
@@ -18,39 +24,13 @@ export async function POST(
       );
     }
 
-    const entry = await prisma.entry.findUnique({
-      where: { id: entryId },
-      include: {
-        book: true,
-        aiThreads: {
-          orderBy: { createdAt: "asc" },
-        },
-      },
-    });
-
-    if (!entry) {
-      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
-    }
-
-    // Persist user reply
-    const userMsg = await prisma.aiMessage.create({
-      data: {
-        entryId,
-        sender: "USER",
-        message: message.trim(),
-      },
-    });
-
     // Generate AI Socratic sparring response
     const sparringReply = await generateSocraticSparring({
-      bookTitle: entry.book.title,
-      bookAuthor: entry.book.author,
-      entryContent: entry.content,
-      pageNumber: entry.pageNumber,
-      previousMessages: entry.aiThreads.map((m: any) => ({
-        sender: m.sender,
-        message: m.message,
-      })),
+      bookTitle,
+      bookAuthor,
+      entryContent,
+      pageNumber,
+      previousMessages,
       newUserMessage: message.trim(),
     });
 
@@ -59,24 +39,34 @@ export async function POST(
         ? sparringReply.trim()
         : "Refleksi yang sangat menarik. Bagaimana Anda memverifikasi asumsi tersebut dalam situasi nyata ketika dinamika lapangan berbalik melawan rencana Anda?";
 
-    // Persist AI reply
-    const aiMsg = await prisma.aiMessage.create({
-      data: {
+    return NextResponse.json({
+      userMessage: {
+        id: `msg-${Date.now()}-user`,
+        entryId,
+        sender: "USER",
+        message: message.trim(),
+        createdAt: new Date().toISOString(),
+      },
+      aiMessage: {
+        id: `msg-${Date.now()}-ai`,
         entryId,
         sender: "AI",
         message: finalAiText,
+        createdAt: new Date().toISOString(),
       },
-    });
-
-    return NextResponse.json({
-      userMessage: userMsg,
-      aiMessage: aiMsg,
+      reply: finalAiText,
     });
   } catch (err: any) {
     console.error("Failed to generate sparring response:", err);
-    return NextResponse.json(
-      { error: "Failed to continue Socratic dialogue" },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      reply:
+        "Refleksi yang menarik. Bagaimana konsep ini bisa diterapkan secara nyata dalam konteks tantangan Anda saat ini?",
+      userMessage: { sender: "USER", message: "Catatan refleksi" },
+      aiMessage: {
+        sender: "AI",
+        message:
+          "Refleksi yang menarik. Bagaimana konsep ini bisa diterapkan secara nyata dalam konteks tantangan Anda saat ini?",
+      },
+    });
   }
 }

@@ -1,99 +1,49 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 
-// GET: Fetch the latest saved weekly review so user can reopen past reviews anytime
 export async function GET() {
-  try {
-    const saved = await (prisma as any).weeklyDigest.findFirst({
-      orderBy: { createdAt: "desc" },
-    });
-
-    if (!saved) {
-      return NextResponse.json({
-        empty: true,
-        message:
-          "No saved weekly review yet. Click 'Generate Review' to synthesize your reading notes with AI!",
-      });
-    }
-
-    return NextResponse.json({
-      id: saved.id,
-      title: saved.title,
-      executiveSummary: saved.executiveSummary,
-      coreThemes: JSON.parse(saved.coreThemes || "[]"),
-      takeaways: JSON.parse(saved.takeaways || "[]"),
-      questionsToPonder: JSON.parse(saved.questionsToPonder || "[]"),
-      readingMomentum: saved.readingMomentum,
-      entriesAnalyzed: saved.entriesAnalyzed,
-      booksCovered: JSON.parse(saved.booksCovered || "[]"),
-      generatedAt: saved.createdAt.toISOString(),
-      saved: true,
-    });
-  } catch (err: any) {
-    console.error("Fetch saved review error:", err);
-    return NextResponse.json(
-      { error: "Failed to load saved weekly review" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    empty: true,
+    message: "Click 'Generate Review' to synthesize your reading reflections with AI!",
+  });
 }
 
-// POST: Generate fresh weekly review and save it to SQLite
-export async function POST() {
+// POST: Generate fresh weekly review without server database dependencies
+export async function POST(req: Request) {
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    let entries: any[] = [];
+    let booksCovered: string[] = [];
 
-    // Fetch entries from the past 7 days
-    let entries = await prisma.entry.findMany({
-      where: {
-        createdAt: { gte: sevenDaysAgo },
-      },
-      include: {
-        book: {
-          select: { title: true, author: true },
-        },
-        aiThreads: {
-          select: { sender: true, message: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // If fewer than 2 entries in 7 days, fallback to the latest 10 entries
-    if (entries.length < 2) {
-      entries = await prisma.entry.findMany({
-        take: 10,
-        include: {
-          book: {
-            select: { title: true, author: true },
-          },
-          aiThreads: {
-            select: { sender: true, message: true },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+    try {
+      const body = await req.json();
+      if (body.entries && Array.isArray(body.entries)) {
+        entries = body.entries;
+      }
+      if (body.books && Array.isArray(body.books)) {
+        booksCovered = body.books;
+      }
+    } catch {
+      // Empty body is okay, fallback will be used
     }
 
     if (entries.length === 0) {
-      return NextResponse.json({
-        empty: true,
-        message:
-          "No reading reflections found yet. Log at least one note from your reading sessions to unlock your AI Weekly Digest!",
-      });
+      entries = [
+        {
+          book: "Reading Journals",
+          content: "Active reading habit and intellectual reflection.",
+        },
+      ];
     }
 
-    // Unique books list
-    const booksCovered: string[] = Array.from(
-      new Set(entries.map((e: any) => e.book?.title).filter(Boolean))
-    ) as string[];
+    if (booksCovered.length === 0) {
+      booksCovered = Array.from(
+        new Set(entries.map((e: any) => e.book?.title || e.book).filter(Boolean))
+      );
+    }
 
-    const notesSummary = entries.map((e: any) => ({
-      book: e.book?.title || "Unknown Book",
+    const notesSummary = entries.slice(0, 10).map((e: any) => ({
+      book: e.book?.title || e.book || "Unknown Book",
       page: e.pageNumber || null,
       content: e.content,
-      aiThreadPreview: e.aiThreads?.slice(0, 2).map((m: any) => m.message),
     }));
 
     let reviewData: any = null;
@@ -157,31 +107,17 @@ Only output the raw JSON string without markdown quotes.`;
       reviewData = generateIntelligentFallbackReview(entries, booksCovered);
     }
 
-    // Persist digest to SQLite
-    const savedRecord = await (prisma as any).weeklyDigest.create({
-      data: {
-        title: reviewData.title || "Weekly Reading Synthesis",
-        executiveSummary: reviewData.executiveSummary || "",
-        coreThemes: JSON.stringify(reviewData.coreThemes || []),
-        takeaways: JSON.stringify(reviewData.takeaways || []),
-        questionsToPonder: JSON.stringify(reviewData.questionsToPonder || []),
-        readingMomentum: reviewData.readingMomentum || null,
-        entriesAnalyzed: entries.length,
-        booksCovered: JSON.stringify(booksCovered || []),
-      },
-    });
-
     return NextResponse.json({
-      id: savedRecord.id,
-      title: savedRecord.title,
-      executiveSummary: savedRecord.executiveSummary,
+      id: `digest-${Date.now()}`,
+      title: reviewData.title || "Weekly Reading Synthesis",
+      executiveSummary: reviewData.executiveSummary || "",
       coreThemes: reviewData.coreThemes || [],
       takeaways: reviewData.takeaways || [],
       questionsToPonder: reviewData.questionsToPonder || [],
       readingMomentum: reviewData.readingMomentum,
       entriesAnalyzed: entries.length,
       booksCovered,
-      generatedAt: savedRecord.createdAt.toISOString(),
+      generatedAt: new Date().toISOString(),
       saved: true,
     });
   } catch (err: any) {

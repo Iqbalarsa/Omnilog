@@ -15,6 +15,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
+import { saveNewBook } from "@/lib/storage";
 
 const YouTubeIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -156,24 +157,15 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
         finalCover = extractYouTubeThumbnail(url.trim());
       }
 
-      const res = await fetch("/api/books", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          author: author.trim() || null,
-          coverUrl: finalCover,
-          totalPages: totalPages ? parseInt(totalPages, 10) : null,
-          status,
-          type: mediaType,
-          url: url.trim() || null,
-        }),
+      saveNewBook({
+        title: title.trim(),
+        author: author.trim() || null,
+        coverUrl: finalCover,
+        totalPages: totalPages ? parseInt(totalPages, 10) : null,
+        status: (status as "READING" | "COMPLETED" | "ON_HOLD") || "READING",
+        type: mediaType,
+        url: url.trim() || null,
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to add item");
-      }
 
       // Reset and close
       resetForm();

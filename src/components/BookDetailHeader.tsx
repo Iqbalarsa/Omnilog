@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
+import { updateStoredBook, deleteStoredBook } from "@/lib/storage";
 
 interface BookDetailHeaderProps {
   book: {
@@ -34,17 +35,11 @@ export default function BookDetailHeader({ book, onBookUpdated }: BookDetailHead
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = (newStatus: string) => {
     setIsUpdating(true);
     try {
-      const res = await fetch(`/api/books/${book.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (res.ok) {
-        onBookUpdated();
-      }
+      updateStoredBook(book.id, { status: newStatus as any });
+      onBookUpdated();
     } catch (e) {
       console.error("Status update error:", e);
     } finally {
@@ -52,15 +47,11 @@ export default function BookDetailHeader({ book, onBookUpdated }: BookDetailHead
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/books/${book.id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        router.push("/");
-      }
+      deleteStoredBook(book.id);
+      router.push("/");
     } catch (e) {
       console.error("Delete error:", e);
     } finally {

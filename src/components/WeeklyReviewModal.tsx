@@ -3,6 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Loader2, RefreshCw } from "lucide-react";
+import {
+  getStoredLatestReview,
+  saveStoredReview,
+  getStoredEntries,
+  getStoredBooks,
+} from "@/lib/storage";
 
 interface WeeklyReviewModalProps {
   isOpen: boolean;
@@ -18,7 +24,7 @@ interface ReviewData {
   coreThemes: string[];
   takeaways: string[];
   questionsToPonder: string[];
-  readingMomentum?: string;
+  readingMomentum?: string | null;
   entriesAnalyzed: number;
   booksCovered: string[];
   generatedAt: string;
@@ -31,17 +37,33 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Load saved review (GET)
-  const loadSavedReview = async () => {
+  // Load saved review
+  const loadSavedReview = () => {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/ai/review", { method: "GET" });
-      if (!res.ok) {
-        throw new Error("Failed to load review");
+      const saved = getStoredLatestReview();
+      if (saved) {
+        setData({
+          ...saved,
+          saved: true,
+          generatedAt: saved.createdAt,
+        });
+      } else {
+        setData({
+          empty: true,
+          message:
+            "No saved weekly review yet. Click 'Generate Review' to synthesize your reading reflections with AI!",
+          title: "Weekly Reading Synthesis",
+          executiveSummary: "",
+          coreThemes: [],
+          takeaways: [],
+          questionsToPonder: [],
+          entriesAnalyzed: 0,
+          booksCovered: [],
+          generatedAt: new Date().toISOString(),
+        });
       }
-      const json = await res.json();
-      setData(json);
     } catch (err: any) {
       setError(err.message || "Failed to load review");
     } finally {
@@ -54,11 +76,27 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/ai/review", { method: "POST" });
+      const entries = getStoredEntries();
+      const books = getStoredBooks();
+
+      const res = await fetch("/api/ai/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entries: entries.slice(0, 15).map((e) => ({
+            book: e.book?.title || "Book",
+            pageNumber: e.pageNumber,
+            content: e.content,
+          })),
+          books: books.map((b) => b.title),
+        }),
+      });
+
       if (!res.ok) {
         throw new Error("Failed to generate weekly review");
       }
       const json = await res.json();
+      saveStoredReview(json);
       setData(json);
     } catch (err: any) {
       setError(err.message || "Failed to generate review");
@@ -278,7 +316,7 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-subtle-theme bg-black/[0.02] dark:bg-white/[0.02]">
           <span className="text-[11px] text-muted-theme">
-            Stored locally in SQLite database
+            Stored securely in your local browser storage
           </span>
           <button
             type="button"

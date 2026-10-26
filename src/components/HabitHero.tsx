@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Flame, CheckCircle2, Clock, Sparkles, BookOpen, PenLine } from "lucide-react";
 import AddBookModal from "./AddBookModal";
+import { calculateReadingStreak } from "@/lib/storage";
 
 interface HabitHeroProps {
   onBookAdded: () => void;
@@ -16,13 +17,10 @@ export default function HabitHero({ onBookAdded }: HabitHeroProps) {
     activeBooksCount: 0,
   });
 
-  const loadStats = async () => {
+  const loadStats = () => {
     try {
-      const res = await fetch("/api/streak");
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
+      const data = calculateReadingStreak();
+      setStats(data);
     } catch (e) {
       console.error("Streak load error:", e);
     }
@@ -32,7 +30,11 @@ export default function HabitHero({ onBookAdded }: HabitHeroProps) {
     loadStats();
     const handleEntrySaved = () => loadStats();
     window.addEventListener("entry-saved", handleEntrySaved);
-    return () => window.removeEventListener("entry-saved", handleEntrySaved);
+    window.addEventListener("omnilog-storage-updated", handleEntrySaved);
+    return () => {
+      window.removeEventListener("entry-saved", handleEntrySaved);
+      window.removeEventListener("omnilog-storage-updated", handleEntrySaved);
+    };
   }, []);
 
   return (

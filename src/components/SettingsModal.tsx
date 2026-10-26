@@ -15,6 +15,7 @@ import {
   Send,
 } from "lucide-react";
 import { useTheme, ThemeColor, ThemeMode } from "@/context/ThemeContext";
+import { getStoredPreferences, saveStoredPreferences } from "@/lib/storage";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -70,19 +71,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   useEffect(() => {
     if (isOpen) {
+      const stored = getStoredPreferences();
+      if (stored) {
+        if (stored.reminderEmail) setReminderEmail(stored.reminderEmail);
+        if (stored.reminderTime) setReminderTime(stored.reminderTime);
+        if (stored.isReminderActive !== undefined)
+          setIsReminderActive(stored.isReminderActive);
+        if (stored.smtpUser) setSmtpUser(stored.smtpUser);
+      }
+
       fetch("/api/preferences")
         .then((res) => res.json())
         .then((data) => {
-          if (data) {
-            if (data.reminderEmail) setReminderEmail(data.reminderEmail);
-            if (data.reminderTime) setReminderTime(data.reminderTime);
-            if (data.isReminderActive !== undefined)
-              setIsReminderActive(data.isReminderActive);
-            if (data.smtpUser) setSmtpUser(data.smtpUser);
-            if (data.hasRealSmtp !== undefined) setHasRealSmtp(data.hasRealSmtp);
+          if (data && data.hasRealSmtp !== undefined) {
+            setHasRealSmtp(data.hasRealSmtp);
           }
         })
-        .catch((err) => console.error("Preferences load error:", err));
+        .catch(() => {});
     }
   }, [isOpen]);
 
@@ -111,7 +116,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSaveSuccess(false);
 
     try {
-      const res = await fetch("/api/preferences", {
+      saveStoredPreferences({
+        reminderEmail: reminderEmail.trim(),
+        reminderTime,
+        isReminderActive,
+        themeMode,
+        themeColor,
+        customColor1: hexInput1.startsWith("#") ? hexInput1 : `#${hexInput1}`,
+        customColor2: hexInput2.startsWith("#") ? hexInput2 : `#${hexInput2}`,
+        customColor3: hexInput3.startsWith("#") ? hexInput3 : `#${hexInput3}`,
+        smtpUser: smtpUser.trim() || undefined,
+        smtpPass: smtpPass.trim() || undefined,
+      });
+
+      // Fire and forget to API for server-side SMTP if available
+      fetch("/api/preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,14 +145,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           smtpUser: smtpUser.trim() || undefined,
           smtpPass: smtpPass.trim() || undefined,
         }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to save settings");
-      }
-
-      const data = await res.json();
-      if (data.hasRealSmtp !== undefined) setHasRealSmtp(data.hasRealSmtp);
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.hasRealSmtp !== undefined) setHasRealSmtp(data.hasRealSmtp);
+        })
+        .catch(() => {});
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
