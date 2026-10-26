@@ -1,0 +1,67 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Book {
+  id          String   @id @default(uuid())
+  title       String
+  author      String?  // Author, Creator, Channel, or Host
+  coverUrl    String?
+  totalPages  Int?     // Total pages for books, or duration/episodes
+  type        String   @default("BOOK") // "BOOK", "VIDEO", "PODCAST"
+  url         String?  // External link (e.g. YouTube, Spotify)
+  status      String   @default("READING") // READING, COMPLETED, ON_HOLD
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  entries     Entry[]
+}
+
+model Entry {
+  id          String        @id @default(uuid())
+  bookId      String
+  book        Book          @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  content     String        // Freeform reading reflection
+  pageNumber  String?       // e.g., "pp. 45-60"
+  createdAt   DateTime      @default(now())
+  aiThreads   AiMessage[]
+}
+
+model AiMessage {
+  id        String   @id @default(uuid())
+  entryId   String
+  entry     Entry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  sender    String   // "USER" or "AI"
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model UserPreference {
+  id               Int      @id @default(1)
+  themeMode        String   @default("system") // light, dark, system
+  themeColor       String   @default("slate")  // slate, amber, rose, custom1, custom2, custom3
+  customColor      String?  @default("#5865F2")
+  customColor1     String?  @default("#5865F2")
+  customColor2     String?  @default("#34A853")
+  customColor3     String?  @default("#8B5CF6")
+  reminderEmail    String?
+  reminderTime     String   @default("20:30")
+  isReminderActive Boolean  @default(true)
+}
+
+model WeeklyDigest {
+  id                String   @id @default(uuid())
+  title             String
+  executiveSummary  String
+  coreThemes        String   // JSON stringified array
+  takeaways         String   // JSON stringified array
+  questionsToPonder String   // JSON stringified array
+  readingMomentum   String?
+  entriesAnalyzed   Int
+  booksCovered      String   // JSON stringified array
+  createdAt         DateTime @default(now())
+}
