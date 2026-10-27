@@ -13,6 +13,8 @@ export interface Book {
   type: "BOOK" | "VIDEO" | "PODCAST";
   url: string | null;
   status: "READING" | "COMPLETED" | "ON_HOLD";
+  description?: string | null;
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
   entriesCount?: number;
@@ -110,6 +112,8 @@ function getInitialSeedData() {
       type: "BOOK",
       url: null,
       status: "READING",
+      description: "Explores the dual systems of human thought: the fast, intuitive System 1 and the deliberate, logical System 2.",
+      pinned: true,
       createdAt: threeDaysAgo.toISOString(),
       updatedAt: now.toISOString(),
     },
@@ -122,6 +126,8 @@ function getInitialSeedData() {
       type: "BOOK",
       url: null,
       status: "COMPLETED",
+      description: "A framework for improving every day through tiny changes, system design, and identity-based habits.",
+      pinned: false,
       createdAt: threeDaysAgo.toISOString(),
       updatedAt: twoDaysAgo.toISOString(),
     },
@@ -134,6 +140,8 @@ function getInitialSeedData() {
       type: "BOOK",
       url: null,
       status: "ON_HOLD",
+      description: "A novel about love, sacrifice, and what it means to be human seen through an Artificial Friend.",
+      pinned: false,
       createdAt: threeDaysAgo.toISOString(),
       updatedAt: threeDaysAgo.toISOString(),
     },
@@ -295,6 +303,8 @@ export function saveNewBook(data: {
   type?: "BOOK" | "VIDEO" | "PODCAST";
   url?: string | null;
   status?: "READING" | "COMPLETED" | "ON_HOLD";
+  description?: string | null;
+  pinned?: boolean;
 }): Book {
   if (typeof window === "undefined") {
     throw new Error("Cannot save book on server");
@@ -313,6 +323,8 @@ export function saveNewBook(data: {
     type: data.type || "BOOK",
     url: data.url ? data.url.trim() : null,
     status: data.status || "READING",
+    description: data.description ? data.description.trim() : null,
+    pinned: Boolean(data.pinned),
     createdAt: now,
     updatedAt: now,
     entriesCount: 0,
@@ -345,6 +357,25 @@ export function updateStoredBook(id: string, updates: Partial<Book>): Book | nul
   localStorage.setItem(STORAGE_KEYS.BOOKS, JSON.stringify(books));
   notifyUpdate();
   return updatedBook;
+}
+
+export function togglePinBook(id: string): Book | null {
+  if (typeof window === "undefined") return null;
+
+  const raw = localStorage.getItem(STORAGE_KEYS.BOOKS);
+  const books: Book[] = raw ? JSON.parse(raw) : [];
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return null;
+
+  books[idx].pinned = !books[idx].pinned;
+  books[idx].updatedAt = new Date().toISOString();
+  localStorage.setItem(STORAGE_KEYS.BOOKS, JSON.stringify(books));
+  notifyUpdate();
+  return books[idx];
+}
+
+export function updateBookDescription(id: string, description: string): Book | null {
+  return updateStoredBook(id, { description: description.trim() || null });
 }
 
 export function deleteStoredBook(id: string): boolean {

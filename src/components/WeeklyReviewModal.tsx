@@ -13,7 +13,10 @@ import {
 interface WeeklyReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
+  activeBook?: { id: string; title: string; type: string } | null;
 }
+
+export type ReviewScope = "ALL" | "BOOK" | "VIDEO" | "ACTIVE";
 
 interface ReviewData {
   id?: string;
@@ -27,13 +30,20 @@ interface ReviewData {
   readingMomentum?: string | null;
   entriesAnalyzed: number;
   booksCovered: string[];
+  scope?: string;
+  scopeTitle?: string | null;
   generatedAt: string;
   saved?: boolean;
 }
 
-export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModalProps) {
+export default function WeeklyReviewModal({
+  isOpen,
+  onClose,
+  activeBook,
+}: WeeklyReviewModalProps) {
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<ReviewData | null>(null);
+  const [scope, setScope] = useState<ReviewScope>("ALL");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,7 +63,7 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
         setData({
           empty: true,
           message:
-            "No saved weekly review yet. Click 'Generate Review' to synthesize your reading reflections with AI!",
+            "No saved weekly review yet. Select your preferred scope and click 'Generate Review' to synthesize reflections with AI!",
           title: "Weekly Reading Synthesis",
           executiveSummary: "",
           coreThemes: [],
@@ -71,24 +81,53 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
     }
   };
 
-  // Generate fresh review (POST)
-  const generateNewReview = async () => {
+  // Generate fresh review (POST) with scope filtering
+  const generateNewReview = async (targetScope: ReviewScope = scope) => {
     setLoading(true);
     setError("");
     try {
-      const entries = getStoredEntries();
-      const books = getStoredBooks();
+      const allEntries = getStoredEntries();
+      const allBooks = getStoredBooks();
+
+      let filteredEntries = allEntries;
+      let filteredBooks = allBooks;
+
+      if (targetScope === "BOOK") {
+        filteredEntries = allEntries.filter(
+          (e) => (e.book?.type ? e.book.type.toUpperCase() : "BOOK") === "BOOK"
+        );
+        filteredBooks = allBooks.filter(
+          (b) => (b.type ? b.type.toUpperCase() : "BOOK") === "BOOK"
+        );
+      } else if (targetScope === "VIDEO") {
+        filteredEntries = allEntries.filter(
+          (e) =>
+            e.book?.type?.toUpperCase() === "VIDEO" ||
+            e.book?.type?.toUpperCase() === "PODCAST"
+        );
+        filteredBooks = allBooks.filter(
+          (b) =>
+            b.type?.toUpperCase() === "VIDEO" ||
+            b.type?.toUpperCase() === "PODCAST"
+        );
+      } else if (targetScope === "ACTIVE" && activeBook) {
+        filteredEntries = allEntries.filter((e) => e.bookId === activeBook.id);
+        filteredBooks = allBooks.filter((b) => b.id === activeBook.id);
+      }
 
       const res = await fetch("/api/ai/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          entries: entries.slice(0, 15).map((e) => ({
+          scope: targetScope,
+          scopeTitle: targetScope === "ACTIVE" && activeBook ? activeBook.title : null,
+          entries: filteredEntries.slice(0, 15).map((e) => ({
             book: e.book?.title || "Book",
+            type: e.book?.type || "BOOK",
             pageNumber: e.pageNumber,
             content: e.content,
           })),
-          books: books.map((b) => b.title),
+          books: filteredBooks.map((b) => b.title),
         }),
       });
 
@@ -103,6 +142,11 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleScopeSelect = (newScope: ReviewScope) => {
+    setScope(newScope);
+    generateNewReview(newScope);
   };
 
   // Mount effect for SSR-safe portal rendering
@@ -151,7 +195,7 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
 
           <div className="flex items-center gap-2">
             <button
-              onClick={generateNewReview}
+              onClick={() => generateNewReview(scope)}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-subtle-theme bg-surface hover:bg-accent-light-theme hover:text-accent-tint hover:border-accent-border-theme text-xs font-medium text-main transition-all apple-press cursor-pointer disabled:opacity-50"
               title="Generate fresh review"
@@ -165,6 +209,63 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+
+        {/* Scope Selector: All, Books Only, Videos Only, Active Item */}
+        <div className="px-6 pt-3 pb-1 border-b border-subtle-theme bg-black/[0.015] dark:bg-white/[0.02]">
+          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/[0.04] dark:bg-white/[0.06] border border-black/[0.04] dark:border-white/[0.04]">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleScopeSelect("ALL")}
+              className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-all text-center cursor-pointer ${
+                scope === "ALL"
+                  ? "bg-white dark:bg-[#2c2c2e] text-main shadow-2xs font-semibold"
+                  : "text-muted-theme hover:text-main"
+              }`}
+            >
+              🌐 All Media
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleScopeSelect("BOOK")}
+              className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-all text-center cursor-pointer ${
+                scope === "BOOK"
+                  ? "bg-white dark:bg-[#2c2c2e] text-main shadow-2xs font-semibold"
+                  : "text-muted-theme hover:text-main"
+              }`}
+            >
+              📚 Books Only
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleScopeSelect("VIDEO")}
+              className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-all text-center cursor-pointer ${
+                scope === "VIDEO"
+                  ? "bg-white dark:bg-[#2c2c2e] text-main shadow-2xs font-semibold"
+                  : "text-muted-theme hover:text-main"
+              }`}
+            >
+              🎥 Videos & Audio
+            </button>
+            {activeBook && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => handleScopeSelect("ACTIVE")}
+                className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-all text-center cursor-pointer truncate ${
+                  scope === "ACTIVE"
+                    ? "bg-white dark:bg-[#2c2c2e] text-main shadow-2xs font-semibold"
+                    : "text-muted-theme hover:text-main"
+                }`}
+                title={`Focused on: ${activeBook.title}`}
+              >
+                🎯 {activeBook.title}
+              </button>
+            )}
           </div>
         </div>
 
@@ -189,7 +290,7 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
               <p className="font-semibold mb-1">Unable to load digest</p>
               <p className="text-xs">{error}</p>
               <button
-                onClick={generateNewReview}
+                onClick={() => generateNewReview(scope)}
                 className="mt-3 px-3 py-1.5 bg-surface border border-theme rounded-xl text-xs font-medium apple-press cursor-pointer"
               >
                 Try Again
@@ -206,7 +307,7 @@ export default function WeeklyReviewModal({ isOpen, onClose }: WeeklyReviewModal
                 {data.message}
               </p>
               <button
-                onClick={generateNewReview}
+                onClick={() => generateNewReview(scope)}
                 className="px-4.5 py-2 rounded-xl bg-accent-theme hover:bg-accent-hover-theme text-white text-xs font-medium shadow-xs cursor-pointer apple-press transition-all"
               >
                 Generate First Review

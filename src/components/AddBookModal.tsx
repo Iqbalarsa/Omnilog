@@ -69,6 +69,7 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
   const [url, setUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [totalPages, setTotalPages] = useState("");
+  const [description, setDescription] = useState("");
   const [status, setStatus] = useState("READING");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -137,6 +138,7 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
     setAuthor(book.author);
     setCoverUrl(book.coverUrl || "");
     setTotalPages(book.totalPages ? String(book.totalPages) : "");
+    setDescription(book.description || "");
     setShowManualForm(true);
   };
 
@@ -165,6 +167,7 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
         status: (status as "READING" | "COMPLETED" | "ON_HOLD") || "READING",
         type: mediaType,
         url: url.trim() || null,
+        description: description.trim() || null,
       });
 
       // Reset and close
@@ -187,6 +190,7 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
     setUrl("");
     setCoverUrl("");
     setTotalPages("");
+    setDescription("");
     setStatus("READING");
     setShowManualForm(false);
     setError("");
@@ -536,6 +540,37 @@ export default function AddBookModal({ onBookAdded }: AddBookModalProps) {
                         <option value="ON_HOLD">On Hold / Later</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Description / Summary Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-muted-theme uppercase tracking-wider">
+                        {mediaType === "BOOK"
+                          ? "Synopsis / Book Description"
+                          : mediaType === "VIDEO"
+                          ? "Video Summary / Key Topics"
+                          : "Podcast Episode Overview"}
+                      </label>
+                      {description.length > 0 && (
+                        <span className="text-[10px] text-muted-theme">
+                          {description.length} chars
+                        </span>
+                      )}
+                    </div>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder={
+                        mediaType === "BOOK"
+                          ? "Synopsis, key themes, or why you're reading this book..."
+                          : mediaType === "VIDEO"
+                          ? "Main topics discussed, key takeaways, or video summary..."
+                          : "Episode highlights, guest details, or audio notes..."
+                      }
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-xl apple-input text-main text-xs resize-none focus:outline-hidden leading-relaxed"
+                    />
                   </div>
 
                   {/* Custom Cover / Thumbnail URL */}

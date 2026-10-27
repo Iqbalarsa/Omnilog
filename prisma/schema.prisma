@@ -16,6 +16,8 @@ model Book {
   type        String   @default("BOOK") // "BOOK", "VIDEO", "PODCAST"
   url         String?  // External link (e.g. YouTube, Spotify)
   status      String   @default("READING") // READING, COMPLETED, ON_HOLD
+  description String?  // Synopsis or user notes/description
+  isPinned    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   entries     Entry[]

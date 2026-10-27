@@ -12,6 +12,8 @@ export async function POST(req: Request) {
   try {
     let entries: any[] = [];
     let booksCovered: string[] = [];
+    let scope: "ALL" | "BOOK" | "VIDEO" | "ACTIVE" = "ALL";
+    let scopeTitle: string | null = null;
 
     try {
       const body = await req.json();
@@ -21,6 +23,12 @@ export async function POST(req: Request) {
       if (body.books && Array.isArray(body.books)) {
         booksCovered = body.books;
       }
+      if (body.scope) {
+        scope = body.scope;
+      }
+      if (body.scopeTitle) {
+        scopeTitle = body.scopeTitle;
+      }
     } catch {
       // Empty body is okay, fallback will be used
     }
@@ -28,8 +36,8 @@ export async function POST(req: Request) {
     if (entries.length === 0) {
       entries = [
         {
-          book: "Reading Journals",
-          content: "Active reading habit and intellectual reflection.",
+          book: scopeTitle || (scope === "VIDEO" ? "Video & Media Logs" : "Reading Journals"),
+          content: "Active intellectual reflection and note-taking habit.",
         },
       ];
     }
@@ -40,13 +48,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const notesSummary = entries.slice(0, 10).map((e: any) => ({
-      book: e.book?.title || e.book || "Unknown Book",
-      page: e.pageNumber || null,
+    const notesSummary = entries.slice(0, 15).map((e: any) => ({
+      source: e.book?.title || e.book || "Unknown Source",
+      type: e.book?.type || (scope === "VIDEO" ? "VIDEO" : "BOOK"),
+      pageOrTimestamp: e.pageNumber || null,
       content: e.content,
     }));
 
     let reviewData: any = null;
+
+    // Build specialized prompt depending on scope
+    let scopeInstruction = "";
+    if (scope === "BOOK") {
+      scopeInstruction = "FOCUS: Long-form reading notes across books. Emphasize conceptual models, thesis evaluation, deep retention, and overarching philosophical frameworks.";
+    } else if (scope === "VIDEO") {
+      scopeInstruction = "FOCUS: Multimedia knowledge intake (YouTube videos, podcasts, talks). Emphasize pragmatic takeaways, modern technology/industry insights, mental models, and rapid execution.";
+    } else if (scope === "ACTIVE") {
+      scopeInstruction = `FOCUS: Deep-dive progress synthesis on the single title: "${scopeTitle || booksCovered[0] || 'Active Media'}". Trace the user's comprehension trajectory, highlight key breakthroughs, and suggest intellectual follow-up questions for this specific work.`;
+    } else {
+      scopeInstruction = "FOCUS: Holistic cross-disciplinary synthesis. Connect insights across books, videos, and podcasts. Find serendipitous connections and unify disparate concepts into cohesive mental models.";
+    }
 
     // Attempt Gemini synthesis with short timeout
     const apiKey = process.env.GEMINI_API_KEY;
@@ -55,14 +76,16 @@ export async function POST(req: Request) {
         const { GoogleGenAI } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
 
-        const systemPrompt = `You are an elite intellectual reading coach and synthesist.
-Analyze the user's reading journal notes from their recent sessions across books.
-Produce a structured, inspiring, high-density weekly reading digest in pure JSON format.
+        const systemPrompt = `You are an elite intellectual reading coach and cognitive synthesist.
+Analyze the user's reflection notes from their recent learning sessions.
+${scopeInstruction}
+
+Produce a structured, inspiring, high-density reading digest in pure JSON format.
 All output MUST be in English.
 
 Required JSON Structure:
 {
-  "title": "A crisp, engaging title for this week's intellectual journey (e.g. 'Cognitive Friction & Habit Systems')",
+  "title": "A crisp, engaging title for this digest (e.g. 'Cognitive Friction & Habit Systems' or 'Deep Dive: Thinking, Fast and Slow')",
   "executiveSummary": "2-3 sharp sentences synthesizing the core ideas and mental shifts the reader engaged with.",
   "coreThemes": ["Theme 1", "Theme 2", "Theme 3"],
   "takeaways": [
@@ -71,7 +94,7 @@ Required JSON Structure:
     "Practical or philosophical takeaway 3"
   ],
   "questionsToPonder": [
-    "One provocative curiosity-hook question exploring the books' tensions",
+    "One provocative curiosity-hook question exploring intellectual tensions",
     "One reflective question linking their notes to real-world execution"
   ],
   "readingMomentum": "A motivating, 1-sentence observation on their reading discipline."
@@ -104,12 +127,12 @@ Only output the raw JSON string without markdown quotes.`;
     }
 
     if (!reviewData) {
-      reviewData = generateIntelligentFallbackReview(entries, booksCovered);
+      reviewData = generateIntelligentFallbackReview(entries, booksCovered, scope, scopeTitle);
     }
 
     return NextResponse.json({
       id: `digest-${Date.now()}`,
-      title: reviewData.title || "Weekly Reading Synthesis",
+      title: reviewData.title || (scopeTitle ? `Synthesis: ${scopeTitle}` : "Weekly Reading Synthesis"),
       executiveSummary: reviewData.executiveSummary || "",
       coreThemes: reviewData.coreThemes || [],
       takeaways: reviewData.takeaways || [],
@@ -117,6 +140,8 @@ Only output the raw JSON string without markdown quotes.`;
       readingMomentum: reviewData.readingMomentum,
       entriesAnalyzed: entries.length,
       booksCovered,
+      scope,
+      scopeTitle,
       generatedAt: new Date().toISOString(),
       saved: true,
     });
@@ -129,11 +154,25 @@ Only output the raw JSON string without markdown quotes.`;
   }
 }
 
-function generateIntelligentFallbackReview(entries: any[], books: string[]) {
-  const booksStr = books.length > 0 ? books.join(", ") : "your active titles";
+function generateIntelligentFallbackReview(
+  entries: any[],
+  books: string[],
+  scope: string = "ALL",
+  scopeTitle?: string | null
+) {
+  const booksStr = scopeTitle || (books.length > 0 ? books.join(", ") : "your active titles");
+
+  const title =
+    scope === "ACTIVE" && scopeTitle
+      ? `Deep-Dive Synthesis: ${scopeTitle}`
+      : scope === "BOOK"
+      ? `Bookshelf Synthesis: Deep Reading Insights`
+      : scope === "VIDEO"
+      ? `Multimedia Digest: Video & Audio Insights`
+      : `Weekly Cross-Media Synthesis: ${books[0] || "Active Insights"}`;
 
   return {
-    title: `Weekly Synthesis: Insights from ${books[0] || "Recent Reading"}`,
+    title,
     executiveSummary: `Across ${entries.length} reflections on ${booksStr}, your reading momentum emphasized active retention over passive skimming. You probed deeply into underlying mechanisms, evaluating how abstract concepts translate into daily cognition and habit structures.`,
     coreThemes: [
       "Behavioral Architecture & Sustainable Systems",
