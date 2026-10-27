@@ -1,5 +1,5 @@
 const SOCRATIC_SYSTEM_PROMPT = `Kamu adalah teman membaca santai (reading buddy) yang cerdas dan suportif.
-Pengguna sedang membaca buku dan menuliskan pemahamannya dalam Bahasa Indonesia.
+Pengguna sedang membaca buku atau menonton video atau mendengarkan podcast dan menuliskan pemahamannya dalam Bahasa Indonesia.
 
 Tujuan & Format Jawaban:
 1. VALIDASI PEMAHAMAN:

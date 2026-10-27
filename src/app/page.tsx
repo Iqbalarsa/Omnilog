@@ -14,6 +14,7 @@ import {
   Bookmark,
 } from "lucide-react";
 import AddBookModal from "@/components/AddBookModal";
+import EditBookModal from "@/components/EditBookModal";
 import QuickLogForm from "@/components/QuickLogForm";
 import EntriesTimeline, { EntryItem } from "@/components/EntriesTimeline";
 import WeeklyReviewModal from "@/components/WeeklyReviewModal";
@@ -24,8 +25,6 @@ import {
   calculateReadingStreak,
   updateStoredBook,
   deleteStoredBook,
-  togglePinBook,
-  updateBookDescription,
 } from "@/lib/storage";
 
 const YouTubeIcon = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
@@ -44,10 +43,11 @@ export interface BookItem {
   type: string; // "BOOK" | "VIDEO" | "PODCAST"
   url: string | null;
   description?: string | null;
-  pinned?: boolean;
   entriesCount: number;
   lastReadAt: string | null;
   lastPage: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface StreakStats {
@@ -73,10 +73,9 @@ export default function ReadingWorkspace() {
   const [loadingBooks, setLoadingBooks] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [showDeleteBookConfirm, setShowDeleteBookConfirm] = useState(false);
   const [isDeletingBook, setIsDeletingBook] = useState(false);
-  const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const [editDescriptionText, setEditDescriptionText] = useState("");
 
   // Load streak stats
   const loadStreak = useCallback(() => {
@@ -157,8 +156,9 @@ export default function ReadingWorkspace() {
   }, [books]);
 
   // Filter books in left panel by status and category
+  // Active reading items stay prioritized naturally at top without extra headers
   const filteredBooks = useMemo(() => {
-    return books.filter((b) => {
+    const list = books.filter((b) => {
       const itemType = b.type ? b.type.toUpperCase() : "BOOK";
       const matchesCategory =
         categoryFilter === "ALL" || itemType === categoryFilter;
@@ -166,40 +166,20 @@ export default function ReadingWorkspace() {
         statusFilter === "ALL" || b.status === statusFilter;
       return matchesCategory && matchesStatus;
     });
+
+    return list.sort((a, b) => {
+      if (a.status === "READING" && b.status !== "READING") return -1;
+      if (b.status === "READING" && a.status !== "READING") return 1;
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return timeB - timeA;
+    });
   }, [books, categoryFilter, statusFilter]);
-
-  // Priority Pinned & Active Reading items (Always locked at top of shelf)
-  const pinnedBooks = useMemo(() => {
-    return filteredBooks.filter(
-      (b) => b.pinned || (b.status === "READING" && (b.type?.toUpperCase() || "BOOK") === "BOOK")
-    );
-  }, [filteredBooks]);
-
-  // Regular library items (Recent chronology)
-  const regularBooks = useMemo(() => {
-    const pinnedIds = new Set(pinnedBooks.map((b) => b.id));
-    return filteredBooks.filter((b) => !pinnedIds.has(b.id));
-  }, [filteredBooks, pinnedBooks]);
 
   // Total entries across all media
   const totalEntriesCount = useMemo(() => {
     return books.reduce((acc, b) => acc + (b.entriesCount || 0), 0);
   }, [books]);
-
-  // Toggle book pin status
-  const handleTogglePin = (bookId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    togglePinBook(bookId);
-    loadBooks();
-  };
-
-  // Save edited description
-  const handleSaveDescription = () => {
-    if (!activeBook) return;
-    updateBookDescription(activeBook.id, editDescriptionText);
-    setIsEditingDescription(false);
-    loadBooks();
-  };
 
   // Toggle book status between READING and COMPLETED
   const handleToggleFinished = () => {
@@ -389,217 +369,81 @@ export default function ReadingWorkspace() {
               </div>
             )}
 
-            {!loadingBooks && (
-              <>
-                {/* 1. Currently Reading & Pinned Items Section */}
-                {pinnedBooks.length > 0 && (
-                  <div className="space-y-1 mb-1">
-                    <div className="flex items-center justify-between px-1.5 pt-1 pb-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-                      <span className="flex items-center gap-1">
-                        <Pin className="w-2.5 h-2.5 fill-current" />
-                        Currently Reading & Pinned
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[9px] font-bold">
-                        {pinnedBooks.length}
-                      </span>
+            {!loadingBooks &&
+              filteredBooks.map((b) => {
+                const isSelected = selectedBookId === b.id;
+                const itemType = b.type ? b.type.toUpperCase() : "BOOK";
+
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => setSelectedBookId(b.id)}
+                    className={`group flex items-center gap-2.5 p-2 rounded-xl text-left transition-all apple-press cursor-pointer border ${
+                      isSelected
+                        ? "bg-accent-light-theme border-accent-border-theme text-accent-tint font-semibold shadow-2xs"
+                        : "bg-transparent border-transparent text-main hover:bg-accent-light-theme/40 hover:text-accent-tint"
+                    }`}
+                  >
+                    {/* Cover Thumbnail */}
+                    <div className="w-8 h-11 bg-surface-elevated rounded-[6px] overflow-hidden shrink-0 border border-subtle-theme flex items-center justify-center shadow-2xs">
+                      {b.coverUrl ? (
+                        <img
+                          src={b.coverUrl}
+                          alt={b.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : itemType === "VIDEO" ? (
+                        <Video className="w-3.5 h-3.5 text-muted-theme/50" />
+                      ) : itemType === "PODCAST" ? (
+                        <Headphones className="w-3.5 h-3.5 text-muted-theme/50" />
+                      ) : (
+                        <BookOpen className="w-3.5 h-3.5 text-muted-theme/50" />
+                      )}
                     </div>
-                    {pinnedBooks.map((b) => {
-                      const isSelected = selectedBookId === b.id;
-                      const itemType = b.type ? b.type.toUpperCase() : "BOOK";
 
-                      return (
-                        <div
-                          key={b.id}
-                          onClick={() => setSelectedBookId(b.id)}
-                          className={`group flex items-center gap-2.5 p-2 rounded-xl text-left transition-all apple-press cursor-pointer border relative ${
-                            isSelected
-                              ? "bg-accent-light-theme border-accent-border-theme text-accent-tint font-semibold shadow-2xs"
-                              : b.pinned
-                              ? "bg-amber-500/[0.04] dark:bg-amber-500/[0.06] border-amber-500/20 text-main hover:bg-accent-light-theme/40 hover:text-accent-tint"
-                              : "bg-black/[0.015] dark:bg-white/[0.02] border-subtle-theme/70 text-main hover:bg-accent-light-theme/40 hover:text-accent-tint"
-                          }`}
-                        >
-                          {/* Cover Thumbnail */}
-                          <div className="w-8 h-11 bg-surface-elevated rounded-[6px] overflow-hidden shrink-0 border border-subtle-theme flex items-center justify-center shadow-2xs relative">
-                            {b.coverUrl ? (
-                              <img
-                                src={b.coverUrl}
-                                alt={b.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : itemType === "VIDEO" ? (
-                              <Video className="w-3.5 h-3.5 text-muted-theme/50" />
-                            ) : itemType === "PODCAST" ? (
-                              <Headphones className="w-3.5 h-3.5 text-muted-theme/50" />
-                            ) : (
-                              <BookOpen className="w-3.5 h-3.5 text-muted-theme/50" />
-                            )}
-                            {b.pinned && (
-                              <div className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-amber-500 text-white shadow-2xs">
-                                <Pin className="w-1.5 h-1.5 fill-current" />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Metadata */}
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-xs font-medium truncate leading-tight">
-                              {b.title}
-                            </h3>
-                            <p className="text-[11px] text-muted-theme truncate mt-0.5">
-                              {b.author || (itemType === "VIDEO" ? "YouTube Creator" : itemType === "PODCAST" ? "Podcast Host" : "Author")}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-1 text-[10px]">
-                              {getMediaBadge(b.type)}
-                              <span className="text-muted-theme/40">•</span>
-                              <span className="text-muted-theme">{b.entriesCount || 0} notes</span>
-                            </div>
-                          </div>
-
-                          {/* Pin Toggle Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleTogglePin(b.id, e)}
-                            title={b.pinned ? "Unpin item" : "Pin to top"}
-                            className={`p-1.5 rounded-lg transition-colors shrink-0 cursor-pointer ${
-                              b.pinned
-                                ? "text-amber-500 hover:text-amber-600 bg-amber-500/10"
-                                : "text-muted-theme/40 hover:text-amber-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] opacity-0 group-hover:opacity-100"
-                            }`}
-                          >
-                            <Pin className={`w-3 h-3 ${b.pinned ? "fill-current" : ""}`} />
-                          </button>
-
-                          {/* Quick Link Shortcut */}
-                          {b.url && (
-                            <a
-                              href={b.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              title={itemType === "VIDEO" ? "Watch on YouTube" : "Open Link"}
-                              className="p-1.5 rounded-lg text-muted-theme hover:text-accent-theme hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors shrink-0"
-                            >
-                              {itemType === "VIDEO" ? (
-                                <YouTubeIcon className="w-3.5 h-3.5 text-red-500" />
-                              ) : (
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              )}
-                            </a>
-                          )}
-
-                          <ChevronRight
-                            className={`w-3.5 h-3.5 shrink-0 transition-transform ${
-                              isSelected
-                                ? "text-main translate-x-0.5"
-                                : "text-muted-theme/50 opacity-0 group-hover:opacity-100"
-                            }`}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* 2. Regular Library Items Section */}
-                {regularBooks.length > 0 && (
-                  <div className="space-y-1">
-                    {pinnedBooks.length > 0 && (
-                      <div className="flex items-center justify-between px-1.5 pt-2 pb-0.5 text-[10px] font-semibold text-muted-theme uppercase tracking-wider border-t border-subtle-theme/60 mt-1.5">
-                        <span>Recent Library</span>
-                        <span className="text-[9px] text-muted-theme font-medium">
-                          {regularBooks.length}
-                        </span>
+                    {/* Metadata */}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xs font-medium truncate leading-tight">
+                        {b.title}
+                      </h3>
+                      <p className="text-[11px] text-muted-theme truncate mt-0.5">
+                        {b.author || (itemType === "VIDEO" ? "YouTube Creator" : itemType === "PODCAST" ? "Podcast Host" : "Author")}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                        {getMediaBadge(b.type)}
+                        <span className="text-muted-theme/40">•</span>
+                        <span className="text-muted-theme">{b.entriesCount || 0} notes</span>
                       </div>
+                    </div>
+
+                    {/* Quick Link Shortcut */}
+                    {b.url && (
+                      <a
+                        href={b.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title={itemType === "VIDEO" ? "Watch on YouTube" : "Open Link"}
+                        className="p-1.5 rounded-lg text-muted-theme hover:text-accent-theme hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors shrink-0"
+                      >
+                        {itemType === "VIDEO" ? (
+                          <YouTubeIcon className="w-3.5 h-3.5 text-red-500" />
+                        ) : (
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        )}
+                      </a>
                     )}
-                    {regularBooks.map((b) => {
-                      const isSelected = selectedBookId === b.id;
-                      const itemType = b.type ? b.type.toUpperCase() : "BOOK";
 
-                      return (
-                        <div
-                          key={b.id}
-                          onClick={() => setSelectedBookId(b.id)}
-                          className={`group flex items-center gap-2.5 p-2 rounded-xl text-left transition-all apple-press cursor-pointer border ${
-                            isSelected
-                              ? "bg-accent-light-theme border-accent-border-theme text-accent-tint font-semibold shadow-2xs"
-                              : "bg-transparent border-transparent text-main hover:bg-accent-light-theme/40 hover:text-accent-tint"
-                          }`}
-                        >
-                          {/* Cover Thumbnail */}
-                          <div className="w-8 h-11 bg-surface-elevated rounded-[6px] overflow-hidden shrink-0 border border-subtle-theme flex items-center justify-center shadow-2xs">
-                            {b.coverUrl ? (
-                              <img
-                                src={b.coverUrl}
-                                alt={b.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : itemType === "VIDEO" ? (
-                              <Video className="w-3.5 h-3.5 text-muted-theme/50" />
-                            ) : itemType === "PODCAST" ? (
-                              <Headphones className="w-3.5 h-3.5 text-muted-theme/50" />
-                            ) : (
-                              <BookOpen className="w-3.5 h-3.5 text-muted-theme/50" />
-                            )}
-                          </div>
-
-                          {/* Metadata */}
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-xs font-medium truncate leading-tight">
-                              {b.title}
-                            </h3>
-                            <p className="text-[11px] text-muted-theme truncate mt-0.5">
-                              {b.author || (itemType === "VIDEO" ? "YouTube Creator" : itemType === "PODCAST" ? "Podcast Host" : "Author")}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-1 text-[10px]">
-                              {getMediaBadge(b.type)}
-                              <span className="text-muted-theme/40">•</span>
-                              <span className="text-muted-theme">{b.entriesCount || 0} notes</span>
-                            </div>
-                          </div>
-
-                          {/* Pin Toggle Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleTogglePin(b.id, e)}
-                            title="Pin to top"
-                            className="p-1.5 rounded-lg text-muted-theme/40 hover:text-amber-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors shrink-0 cursor-pointer opacity-0 group-hover:opacity-100"
-                          >
-                            <Pin className="w-3 h-3" />
-                          </button>
-
-                          {/* Quick Link Shortcut */}
-                          {b.url && (
-                            <a
-                              href={b.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              title={itemType === "VIDEO" ? "Watch on YouTube" : "Open Link"}
-                              className="p-1.5 rounded-lg text-muted-theme hover:text-accent-theme hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors shrink-0"
-                            >
-                              {itemType === "VIDEO" ? (
-                                <YouTubeIcon className="w-3.5 h-3.5 text-red-500" />
-                              ) : (
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              )}
-                            </a>
-                          )}
-
-                          <ChevronRight
-                            className={`w-3.5 h-3.5 shrink-0 transition-transform ${
-                              isSelected
-                                ? "text-main translate-x-0.5"
-                                : "text-muted-theme/50 opacity-0 group-hover:opacity-100"
-                            }`}
-                          />
-                        </div>
-                      );
-                    })}
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+                        isSelected
+                          ? "text-main translate-x-0.5"
+                          : "text-muted-theme/50 opacity-0 group-hover:opacity-100"
+                      }`}
+                    />
                   </div>
-                )}
-              </>
-            )}
+                );
+              })}
           </div>
         </div>
       </aside>
@@ -607,209 +451,140 @@ export default function ReadingWorkspace() {
       {/* Right Column: Main Reading / Media Feed & Journal Workspace */}
       <section className="flex-1 w-full min-w-0 flex flex-col gap-4">
         {/* Active Media Card (or All Media Header) */}
-        {/* Active Media Card (or All Media Header) */}
-        <div className="apple-card p-4 flex flex-col gap-3">
+        <div className="apple-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {activeBook ? (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-12 h-16 bg-surface-elevated rounded-lg overflow-hidden shrink-0 border border-subtle-theme shadow-xs flex items-center justify-center">
-                    {activeBook.coverUrl ? (
-                      <img
-                        src={activeBook.coverUrl}
-                        alt={activeBook.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : activeBook.type === "VIDEO" ? (
-                      <Video className="w-6 h-6 text-muted-theme/50" />
-                    ) : activeBook.type === "PODCAST" ? (
-                      <Headphones className="w-6 h-6 text-muted-theme/50" />
-                    ) : (
-                      <BookOpen className="w-6 h-6 text-muted-theme/50" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {getMediaBadge(activeBook.type)}
-
-                      <select
-                        value={activeBook.status}
-                        onChange={(e) => handleStatusChange(e.target.value)}
-                        className="px-2.5 py-0.5 rounded-full text-[11px] font-medium apple-input text-main focus:outline-hidden cursor-pointer"
-                      >
-                        <option value="READING">
-                          {activeBook.type === "VIDEO"
-                            ? "Watching"
-                            : activeBook.type === "PODCAST"
-                            ? "Listening"
-                            : "Reading"}
-                        </option>
-                        <option value="COMPLETED">Completed</option>
-                        <option value="ON_HOLD">On Hold</option>
-                      </select>
-
-                      {activeBook.totalPages && (
-                        <span className="text-[11px] font-medium apple-badge-neutral px-2.5 py-0.5 rounded-full">
-                          {activeBook.type === "BOOK"
-                            ? `${activeBook.totalPages} pages`
-                            : `${activeBook.totalPages} mins`}
-                        </span>
-                      )}
-
-                      <span className="text-[11px] font-medium apple-badge-neutral px-2.5 py-0.5 rounded-full">
-                        {entries.length} reflections
-                      </span>
-                    </div>
-
-                    <h2 className="text-base sm:text-lg font-semibold text-main tracking-tight truncate mt-1">
-                      {activeBook.title}
-                    </h2>
-                    <p className="text-xs text-muted-theme truncate">
-                      {activeBook.type === "VIDEO"
-                        ? `by ${activeBook.author || "YouTube Channel"}`
-                        : activeBook.type === "PODCAST"
-                        ? `hosted by ${activeBook.author || "Podcast Host"}`
-                        : `by ${activeBook.author || "Unknown Author"}`}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Actions: Pin, Link, Status, Delete */}
-                <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
-                  {/* Pin / Unpin Button */}
-                  <button
-                    onClick={(e) => handleTogglePin(activeBook.id, e)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all apple-press cursor-pointer border ${
-                      activeBook.pinned
-                        ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 shadow-2xs"
-                        : "bg-surface border-subtle-theme text-muted-theme hover:text-amber-500 hover:border-amber-500/30"
-                    }`}
-                    title={activeBook.pinned ? "Pinned to top of shelf" : "Pin to top of shelf"}
-                  >
-                    <Pin className={`w-3.5 h-3.5 ${activeBook.pinned ? "fill-current" : ""}`} />
-                    <span>{activeBook.pinned ? "Pinned" : "Pin"}</span>
-                  </button>
-
-                  {/* Simple Link Button that opens in a new tab */}
-                  {activeBook.url && (
-                    <a
-                      href={activeBook.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-light-theme hover:bg-accent-border-theme/40 text-accent-tint text-xs font-semibold transition-all border border-accent-border-theme shadow-2xs apple-press"
-                    >
-                      {activeBook.type === "VIDEO" ? (
-                        <YouTubeIcon className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                      ) : (
-                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                      )}
-                      <span>
-                        {activeBook.type === "VIDEO" ? "Watch ↗" : "Source ↗"}
-                      </span>
-                    </a>
-                  )}
-
-                  <button
-                    onClick={handleToggleFinished}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all apple-press cursor-pointer ${
-                      activeBook.status === "COMPLETED"
-                        ? "apple-btn-secondary"
-                        : "bg-accent-theme hover:bg-accent-hover-theme text-white shadow-xs"
-                    }`}
-                  >
-                    {activeBook.status === "COMPLETED"
-                      ? "Mark Active"
-                      : "Mark Finished"}
-                  </button>
-
-                  {!showDeleteBookConfirm ? (
-                    <button
-                      onClick={() => setShowDeleteBookConfirm(true)}
-                      className="p-2 rounded-xl text-muted-theme hover:text-red-500 hover:bg-red-500/10 transition-colors apple-press cursor-pointer"
-                      title="Delete item"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-12 h-16 bg-surface-elevated rounded-lg overflow-hidden shrink-0 border border-subtle-theme shadow-xs flex items-center justify-center">
+                  {activeBook.coverUrl ? (
+                    <img
+                      src={activeBook.coverUrl}
+                      alt={activeBook.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : activeBook.type === "VIDEO" ? (
+                    <Video className="w-6 h-6 text-muted-theme/50" />
+                  ) : activeBook.type === "PODCAST" ? (
+                    <Headphones className="w-6 h-6 text-muted-theme/50" />
                   ) : (
-                    <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-xl text-xs">
-                      <span className="text-red-600 dark:text-red-400 font-medium">
-                        Delete?
-                      </span>
-                      <button
-                        onClick={handleDeleteBook}
-                        disabled={isDeletingBook}
-                        className="text-red-600 font-semibold hover:underline cursor-pointer"
-                      >
-                        {isDeletingBook ? "..." : "Yes"}
-                      </button>
-                      <button
-                        onClick={() => setShowDeleteBookConfirm(false)}
-                        className="text-muted-theme hover:underline cursor-pointer"
-                      >
-                        No
-                      </button>
-                    </div>
+                    <BookOpen className="w-6 h-6 text-muted-theme/50" />
                   )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {getMediaBadge(activeBook.type)}
+
+                    <select
+                      value={activeBook.status}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      className="px-2.5 py-0.5 rounded-full text-[11px] font-medium apple-input text-main focus:outline-hidden cursor-pointer"
+                    >
+                      <option value="READING">
+                        {activeBook.type === "VIDEO"
+                          ? "Watching"
+                          : activeBook.type === "PODCAST"
+                          ? "Listening"
+                          : "Reading"}
+                      </option>
+                      <option value="COMPLETED">Completed</option>
+                      <option value="ON_HOLD">On Hold</option>
+                    </select>
+
+                    {activeBook.totalPages && (
+                      <span className="text-[11px] font-medium apple-badge-neutral px-2.5 py-0.5 rounded-full">
+                        {activeBook.type === "BOOK"
+                          ? `${activeBook.totalPages} pages`
+                          : `${activeBook.totalPages} mins`}
+                      </span>
+                    )}
+
+                    <span className="text-[11px] font-medium apple-badge-neutral px-2.5 py-0.5 rounded-full">
+                      {entries.length} reflections
+                    </span>
+                  </div>
+
+                  <h2 className="text-base sm:text-lg font-semibold text-main tracking-tight truncate mt-1">
+                    {activeBook.title}
+                  </h2>
+                  <p className="text-xs text-muted-theme truncate">
+                    {activeBook.type === "VIDEO"
+                      ? `by ${activeBook.author || "YouTube Channel"}`
+                      : activeBook.type === "PODCAST"
+                      ? `hosted by ${activeBook.author || "Podcast Host"}`
+                      : `by ${activeBook.author || "Unknown Author"}`}
+                  </p>
                 </div>
               </div>
 
-              {/* Description Section with In-place Edit */}
-              <div className="pt-2 border-t border-subtle-theme/60">
-                {isEditingDescription ? (
-                  <div className="space-y-2 p-3 rounded-xl bg-black/[0.02] dark:bg-white/[0.03] border border-subtle-theme animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-semibold text-muted-theme uppercase tracking-wider">
-                        Edit Description / Summary
-                      </label>
-                      <span className="text-[10px] text-muted-theme">
-                        {editDescriptionText.length} chars
-                      </span>
-                    </div>
-                    <textarea
-                      value={editDescriptionText}
-                      onChange={(e) => setEditDescriptionText(e.target.value)}
-                      placeholder="Add key takeaways, synopsis, or summary notes..."
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-xl apple-input text-main text-xs resize-none focus:outline-hidden leading-relaxed"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingDescription(false)}
-                        className="px-2.5 py-1 text-xs text-muted-theme hover:text-main cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveDescription}
-                        className="px-3 py-1 rounded-xl bg-accent-theme text-white text-xs font-medium apple-press cursor-pointer"
-                      >
-                        Save Description
-                      </button>
-                    </div>
-                  </div>
+              {/* Actions: Link, Status, Edit, Delete */}
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
+                {/* Simple Link Button that opens in a new tab */}
+                {activeBook.url && (
+                  <a
+                    href={activeBook.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-light-theme hover:bg-accent-border-theme/40 text-accent-tint text-xs font-semibold transition-all border border-accent-border-theme shadow-2xs apple-press"
+                  >
+                    {activeBook.type === "VIDEO" ? (
+                      <YouTubeIcon className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    ) : (
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>
+                      {activeBook.type === "VIDEO" ? "Watch ↗" : "Source ↗"}
+                    </span>
+                  </a>
+                )}
+
+                <button
+                  onClick={handleToggleFinished}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all apple-press cursor-pointer ${
+                    activeBook.status === "COMPLETED"
+                      ? "apple-btn-secondary"
+                      : "bg-accent-theme hover:bg-accent-hover-theme text-white shadow-xs"
+                  }`}
+                >
+                  {activeBook.status === "COMPLETED"
+                    ? "Mark Active"
+                    : "Mark Finished"}
+                </button>
+
+                {/* Edit Media Popup Trigger Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="p-2 rounded-xl text-muted-theme hover:text-accent-theme hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors apple-press cursor-pointer"
+                  title="Edit media details"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+
+                {!showDeleteBookConfirm ? (
+                  <button
+                    onClick={() => setShowDeleteBookConfirm(true)}
+                    className="p-2 rounded-xl text-muted-theme hover:text-red-500 hover:bg-red-500/10 transition-colors apple-press cursor-pointer"
+                    title="Delete item"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 ) : (
-                  <div className="group/desc flex items-start justify-between gap-3 p-2.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.03] border border-subtle-theme/70">
-                    <p className="text-xs text-muted-theme/90 leading-relaxed line-clamp-2 hover:line-clamp-none transition-all flex-1 cursor-pointer">
-                      {activeBook.description ? (
-                        activeBook.description
-                      ) : (
-                        <span className="italic opacity-60">
-                          No synopsis or description added yet. Click edit to add summary notes.
-                        </span>
-                      )}
-                    </p>
+                  <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-xl text-xs">
+                    <span className="text-red-600 dark:text-red-400 font-medium">
+                      Delete?
+                    </span>
                     <button
-                      type="button"
-                      onClick={() => {
-                        setEditDescriptionText(activeBook.description || "");
-                        setIsEditingDescription(true);
-                      }}
-                      className="p-1 rounded-lg text-muted-theme hover:text-accent-theme hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors shrink-0"
-                      title="Edit description"
+                      onClick={handleDeleteBook}
+                      disabled={isDeletingBook}
+                      className="text-red-600 font-semibold hover:underline cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" />
+                      {isDeletingBook ? "..." : "Yes"}
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteBookConfirm(false)}
+                      className="text-muted-theme hover:underline cursor-pointer"
+                    >
+                      No
                     </button>
                   </div>
                 )}
@@ -861,6 +636,14 @@ export default function ReadingWorkspace() {
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         activeBook={activeBook}
+      />
+
+      {/* Edit Media Modal Popup */}
+      <EditBookModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        book={activeBook}
+        onBookUpdated={loadBooks}
       />
     </div>
   );
